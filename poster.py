@@ -15,17 +15,18 @@ SHIO = ["TIKUS", "KERBAU", "HARIMAU", "KELINCI", "NAGA", "ULAR", "KUDA", "KAMBIN
 HARI_ID = {"Monday":"SENIN", "Tuesday":"SELASA", "Wednesday":"RABU", "Thursday":"KAMIS", "Friday":"JUMAT", "Saturday":"SABTU", "Sunday":"MINGGU"}
 BULAN_ID = ["", "JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI", "JULI", "AGUSTUS", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"]
 
-# Warna template OMTOGEL
+# Template OMTOGEL V6: font besar, tebal, rapat, aman di Railway/Pillow minimal.
 BG = (3, 4, 5)
-PANEL = (7, 9, 11)
-PANEL_2 = (11, 12, 14)
-SILVER = (220, 224, 228)
-SILVER_DARK = (125, 130, 136)
+PANEL = (8, 10, 12)
+PANEL_2 = (12, 13, 15)
 WHITE = (248, 248, 248)
-GOLD = (225, 181, 70)
-GOLD_SOFT = (193, 147, 48)
-BLACK = (8, 8, 8)
-POSTER_VERSION = "V5-FONT-FIX-20260818"
+SILVER = (220, 224, 228)
+SILVER_DARK = (112, 118, 124)
+GOLD = (231, 185, 70)
+GOLD_BRIGHT = (247, 202, 81)
+GOLD_DARK = (178, 132, 34)
+BLACK = (7, 7, 7)
+POSTER_VERSION = "V6-BOLD-LAYOUT-20260818"
 
 
 def seeded_rng(pasaran, result_dt):
@@ -104,13 +105,13 @@ def generate_prediction_data(pasaran, result_dt):
 
 _FONT_CACHE = {}
 
-def font(size, bold=True):
-    """Load font dengan ukuran yang BENAR juga di Railway image minimal.
 
-    Sebelumnya fallback memakai ImageFont.load_default() tanpa size. Jika image
-    Railway tidak punya DejaVu, Pillow mengembalikan bitmap font kecil sehingga
-    seluruh tulisan poster terlihat mini. Pillow 11 mendukung load_default(size=),
-    jadi fallback sekarang tetap scalable sesuai ukuran yang diminta.
+def font(size, bold=True):
+    """Font scalable yang aman di local dan Railway.
+
+    Tidak pernah fallback ke bitmap kecil tanpa ukuran. Jika font sistem tidak ada,
+    Pillow scalable default tetap memakai size yang diminta. Ketebalan tambahan
+    dibuat lewat stroke saat menggambar sehingga hasil tetap tebal di Railway.
     """
     size = max(8, int(size))
     key = (size, bool(bold))
@@ -131,24 +132,24 @@ def font(size, bold=True):
             _FONT_CACHE[key] = fnt
             return fnt
         except Exception:
-            continue
+            pass
 
-    # CRITICAL FIX: jangan pakai load_default() tanpa size.
     try:
         fnt = ImageFont.load_default(size=size)
-    except TypeError:
-        # Sangat jarang pada Pillow lama; requirements mengunci Pillow 11.1.0.
-        fnt = ImageFont.load_default()
+    except TypeError as exc:
+        raise RuntimeError(
+            "Pillow terlalu lama: scalable fallback font tidak tersedia. "
+            "Gunakan Pillow==11.1.0 dari requirements.txt."
+        ) from exc
     _FONT_CACHE[key] = fnt
     return fnt
 
 
-def fit_font(draw, text, max_width, start_size, min_size=22, bold=True):
-    """Cari font terbesar yang muat pada lebar yang tersedia."""
+def fit_font(draw, text, max_width, start_size, min_size=28, bold=True, stroke=0):
     text = str(text)
     for size in range(int(start_size), int(min_size) - 1, -1):
         fnt = font(size, bold)
-        bb = draw.textbbox((0, 0), text, font=fnt)
+        bb = draw.textbbox((0, 0), text, font=fnt, stroke_width=stroke)
         if bb[2] - bb[0] <= max_width:
             return fnt
     return font(min_size, bold)
@@ -159,33 +160,44 @@ def center_text(draw, box, text, fnt, fill=WHITE, stroke=0, stroke_fill=BLACK):
     text = str(text)
     bb = draw.textbbox((0, 0), text, font=fnt, stroke_width=stroke)
     w, h = bb[2] - bb[0], bb[3] - bb[1]
-    x = x1 + (x2 - x1 - w) / 2
+    # Koreksi bbox kiri/atas penting untuk font FreeType yang punya bearing negatif.
+    x = x1 + (x2 - x1 - w) / 2 - bb[0]
     y = y1 + (y2 - y1 - h) / 2 - bb[1]
     draw.text((x, y), text, font=fnt, fill=fill, stroke_width=stroke, stroke_fill=stroke_fill)
 
 
-def rounded_panel(draw, box, radius=18, fill=PANEL, outline=SILVER, width=2):
+def rounded_panel(draw, box, radius=18, fill=PANEL, outline=GOLD_DARK, width=2):
     draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
 
 
-def draw_search_icon(draw, cx, cy, r=16, color=SILVER, width=4):
+def draw_search_icon(draw, cx, cy, r=18, color=GOLD_BRIGHT, width=5):
     draw.ellipse((cx-r, cy-r, cx+r, cy+r), outline=color, width=width)
-    draw.line((cx+r-2, cy+r-2, cx+r+13, cy+r+13), fill=color, width=width)
+    draw.line((cx+r-2, cy+r-2, cx+r+15, cy+r+15), fill=color, width=width)
 
 
-def draw_label_value(draw, box, label, value, label_size=34, value_size=60, value_min=30):
+def draw_gold_label(draw, box, label):
     x1, y1, x2, y2 = box
-    rounded_panel(draw, box, 16, PANEL, SILVER, 2)
+    draw.rounded_rectangle(box, radius=15, fill=GOLD, outline=GOLD_BRIGHT, width=2)
+    # sisi kanan diluruskan agar menyatu dengan panel angka
+    draw.rectangle((x2 - 16, y1, x2, y2), fill=GOLD)
+    fnt = fit_font(draw, label, x2 - x1 - 24, 54, 38, stroke=1)
+    center_text(draw, box, label, fnt, BLACK, 1, (90, 60, 0))
+
+
+def draw_label_value(draw, box, label, value, label_size, value_size, value_min):
+    x1, y1, x2, y2 = box
+    rounded_panel(draw, box, 16, PANEL, GOLD_DARK, 2)
     label_h = 58
     split = y1 + label_h
-    draw.line((x1, split, x2, split), fill=SILVER_DARK, width=1)
-    center_text(draw, (x1, y1, x2, split), label, font(label_size), GOLD)
-    fnt = fit_font(draw, value, x2 - x1 - 24, value_size, value_min)
-    center_text(draw, (x1 + 6, split, x2 - 6, y2), value, fnt, WHITE, 1, (25, 25, 25))
+    draw.line((x1, split, x2, split), fill=GOLD_DARK, width=2)
+    center_text(draw, (x1, y1, x2, split), label, font(label_size), GOLD_BRIGHT, 1, BLACK)
+    # nilai dibuat tebal dengan stroke 2; fit hanya dilakukan sampai batas minimum besar.
+    fnt = fit_font(draw, value, x2 - x1 - 20, value_size, value_min, stroke=2)
+    center_text(draw, (x1 + 5, split, x2 - 5, y2), value, fnt, WHITE, 2, BLACK)
 
 
 def create_poster(data):
-    """Buat poster 1080x1350 dengan font besar dan layout rapat untuk Telegram/HP."""
+    """Poster 1080x1350: besar, tebal, rapat, dan terbaca jelas di Telegram/HP."""
     validate_prediction_data(data)
     if not LOGO_FILE.exists():
         raise FileNotFoundError(f"Logo OMTOGEL tidak ditemukan: {LOGO_FILE}")
@@ -196,94 +208,97 @@ def create_poster(data):
 
     # Background hitam-metallic halus.
     for y in range(H):
-        d = abs(y - H * 0.52) / (H * 0.52)
+        d = abs(y - H * 0.50) / (H * 0.50)
         shade = max(3, min(14, int(13 - 8 * d)))
         draw.line((0, y, W, y), fill=(shade, shade + 1, shade + 2))
 
-    # Garis sudut dekoratif tipis agar tampilan tetap ringan dan rapi.
-    for offset, col, wd in ((0, SILVER, 2), (18, (80, 84, 88), 1), (30, GOLD_SOFT, 1)):
-        draw.line((offset, offset, 125, 125), fill=col, width=wd)
-        draw.line((W-offset, offset, W-125, 125), fill=col, width=wd)
-        draw.line((offset, H-offset, 125, H-125), fill=col, width=wd)
-        draw.line((W-offset, H-offset, W-125, H-125), fill=col, width=wd)
+    # Garis sudut emas/silver.
+    for offset, col, wd in ((0, GOLD_BRIGHT, 2), (17, (110, 86, 36), 1), (30, SILVER_DARK, 1)):
+        draw.line((offset, offset, 132, 132), fill=col, width=wd)
+        draw.line((W-offset, offset, W-132, 132), fill=col, width=wd)
+        draw.line((offset, H-offset, 132, H-132), fill=col, width=wd)
+        draw.line((W-offset, H-offset, W-132, H-132), fill=col, width=wd)
 
-    # Header logo: tetap besar tetapi tidak memakan ruang angka.
+    # Logo OMTOGEL.
     with Image.open(LOGO_FILE) as src:
         logo = src.convert("RGBA")
         alpha = logo.getchannel("A")
         bbox = alpha.getbbox()
         if bbox:
             logo = logo.crop(bbox)
-        logo.thumbnail((760, 138), Image.Resampling.LANCZOS)
-        img.paste(logo, ((W - logo.width) // 2, 22), logo)
+        logo.thumbnail((710, 130), Image.Resampling.LANCZOS)
+        img.paste(logo, ((W - logo.width) // 2, 18), logo)
 
-    center_text(draw, (35, 146, W-35, 250), "PREDIKSI TOGEL", font(86), WHITE, 1, (80, 80, 80))
+    # Judul besar dan tebal.
+    title_f = fit_font(draw, "PREDIKSI TOGEL", 960, 92, 74, stroke=2)
+    center_text(draw, (40, 142, W-40, 242), "PREDIKSI TOGEL", title_f, WHITE, 2, BLACK)
 
-    # Pasaran + tanggal. Font otomatis mengecil hanya jika nama pasarannya panjang.
-    rounded_panel(draw, (38, 258, 1042, 402), 20, PANEL_2, SILVER, 2)
-    market_f = fit_font(draw, data["pasaran"], 900, 72, 46)
-    center_text(draw, (75, 267, 1005, 337), data["pasaran"], market_f, WHITE, 1, BLACK)
+    # Pasaran + tanggal.
+    rounded_panel(draw, (36, 250, 1044, 394), 20, PANEL_2, GOLD_DARK, 2)
+    market_f = fit_font(draw, data["pasaran"], 930, 76, 52, stroke=2)
+    center_text(draw, (64, 258, 1016, 332), data["pasaran"], market_f, WHITE, 2, BLACK)
     dt = data["result_dt"]
     date_text = f"{HARI_ID[dt.strftime('%A')]}, {dt.day:02d} {BULAN_ID[dt.month]} {dt.year}"
-    date_f = fit_font(draw, date_text, 780, 40, 32)
-    center_text(draw, (140, 340, 940, 393), date_text, date_f, GOLD)
+    date_f = fit_font(draw, date_text, 800, 44, 36, stroke=1)
+    center_text(draw, (130, 334, 950, 390), date_text, date_f, GOLD_BRIGHT, 1, BLACK)
 
-    # 4 kotak utama: label dan nilai sama-sama dibesarkan.
-    y1, y2 = 420, 588
-    margin, gap = 38, 8
+    # BBFS / AI / CB / CM.
+    y1, y2 = 412, 582
+    margin, gap = 36, 8
     colw = (W - 2 * margin - 3 * gap) // 4
     fields = [
-        ("BBFS", data["bbfs"], 66, 44),
-        ("AI", data["ai"], 68, 44),
-        ("CB", data["cb"], 66, 42),
-        ("CM", data["cm"], 58, 38),
+        ("BBFS", data["bbfs"], 72, 46),
+        ("AI", data["ai"], 76, 50),
+        ("CB", data["cb"], 72, 48),
+        ("CM", data["cm"], 62, 42),
     ]
     for i, (label, value, val_size, val_min) in enumerate(fields):
         x1 = margin + i * (colw + gap)
-        draw_label_value(draw, (x1, y1, x1 + colw, y2), label, value, 39, val_size, val_min)
+        draw_label_value(draw, (x1, y1, x1 + colw, y2), label, value, 42, val_size, val_min)
 
-    # 4D / 3D / 2D. Tinggi baris dirapatkan dan angka diperbesar.
+    # 4D / 3D / 2D dibuat paling menonjol.
     rows = [
-        ("4D BB", data["d4"], 58, 44),
-        ("3D BB", data["d3"], 48, 36),
-        ("2D BB", data["d2"], 44, 33),
+        ("4D BB", data["d4"], 62, 46),
+        ("3D BB", data["d3"], 50, 36),
+        ("2D BB", data["d2"], 46, 31),
     ]
-    row_y = 604
-    row_h = 104
+    row_y = 598
+    row_h = 108
     row_gap = 8
-    label_w = 205
+    label_w = 195
     for idx, (label, value, start_size, min_size) in enumerate(rows):
         top = row_y + idx * (row_h + row_gap)
         bottom = top + row_h
-        rounded_panel(draw, (38, top, 1042, bottom), 16, PANEL, SILVER, 2)
-        # label gold/metal seperti referensi, lebih kontras.
-        draw.rounded_rectangle((38, top, 38 + label_w, bottom), radius=16, fill=(215, 175, 75), outline=SILVER, width=1)
-        draw.rectangle((38 + label_w - 16, top, 38 + label_w, bottom), fill=(215, 175, 75))
-        center_text(draw, (38, top, 38 + label_w, bottom), label, font(47), BLACK)
-        vf = fit_font(draw, value, 1042 - (38 + label_w) - 30, start_size, min_size)
-        center_text(draw, (38 + label_w + 12, top, 1030, bottom), value, vf, WHITE, 1, BLACK)
+        rounded_panel(draw, (36, top, 1044, bottom), 16, PANEL, GOLD_DARK, 2)
+        draw_gold_label(draw, (36, top, 36 + label_w, bottom), label)
+        vf = fit_font(draw, value, 1044 - (36 + label_w) - 30, start_size, min_size, stroke=2)
+        center_text(draw, (36 + label_w + 12, top, 1032, bottom), value, vf, WHITE, 2, BLACK)
 
-    # SHIO: label + nama dibuat jauh lebih besar dan mudah dibaca.
-    sy1, sy2 = 944, 1078
-    rounded_panel(draw, (38, sy1, 1042, sy2), 16, PANEL, SILVER, 2)
-    center_text(draw, (300, sy1 + 2, 780, sy1 + 60), "SHIO", font(43), GOLD)
-    shio_f = fit_font(draw, data["shio"], 520, 72, 54)
-    center_text(draw, (270, sy1 + 48, 810, sy2 - 4), data["shio"], shio_f, WHITE, 1, BLACK)
-    # ornamen sederhana yang selalu tersedia (tanpa font emoji yang rawan hilang)
-    center_text(draw, (62, sy1 + 15, 205, sy2 - 12), "◆", font(72), SILVER)
-    center_text(draw, (875, sy1 + 15, 1018, sy2 - 12), "◆", font(72), SILVER)
+    # SHIO tanpa karakter Unicode yang bisa menjadi kotak di Railway.
+    sy1, sy2 = 946, 1072
+    rounded_panel(draw, (36, sy1, 1044, sy2), 16, PANEL, GOLD_DARK, 2)
+    center_text(draw, (330, sy1 + 2, 750, sy1 + 54), "SHIO", font(42), GOLD_BRIGHT, 1, BLACK)
+    shio_f = fit_font(draw, data["shio"], 620, 74, 58, stroke=2)
+    center_text(draw, (230, sy1 + 42, 850, sy2 - 4), data["shio"], shio_f, WHITE, 2, BLACK)
+    # Ornamen geometris sederhana, tidak bergantung glyph/font.
+    for cx in (132, 948):
+        cy = (sy1 + sy2) // 2
+        r = 34
+        pts = [(cx, cy-r), (cx+r, cy), (cx, cy+r), (cx-r, cy)]
+        draw.polygon(pts, outline=GOLD_BRIGHT)
+        draw.polygon([(cx, cy-r+10), (cx+r-10, cy), (cx, cy+r-10), (cx-r+10, cy)], outline=SILVER)
 
-    # TWIN dan ANGKA PANAS: ukuran angka dibesarkan.
-    draw_label_value(draw, (38, 1094, 532, 1224), "TWIN", data["twin"], 39, 70, 48)
-    draw_label_value(draw, (548, 1094, 1042, 1224), "ANGKA PANAS", data["hot"], 35, 80, 58)
+    # TWIN / ANGKA PANAS.
+    draw_label_value(draw, (36, 1088, 532, 1222), "TWIN", data["twin"], 42, 78, 60)
+    draw_label_value(draw, (548, 1088, 1044, 1222), "ANGKA PANAS", data["hot"], 38, 88, 68)
 
-    # Footer lebih tebal dan besar; tanpa panel promosi tambahan.
-    rounded_panel(draw, (70, 1242, 1010, 1321), 22, PANEL_2, SILVER_DARK, 2)
-    draw_search_icon(draw, 116, 1279, 16, SILVER, 4)
-    draw_search_icon(draw, 964, 1279, 16, SILVER, 4)
+    # Footer besar dan tebal.
+    rounded_panel(draw, (68, 1238, 1012, 1324), 22, PANEL_2, GOLD_DARK, 2)
+    draw_search_icon(draw, 116, 1280, 17, GOLD_BRIGHT, 5)
+    draw_search_icon(draw, 964, 1280, 17, GOLD_BRIGHT, 5)
     footer = "CARI KAMI DI GOOGLE : OMTOGEL"
-    footer_f = fit_font(draw, footer, 770, 40, 32)
-    center_text(draw, (155, 1242, 925, 1321), footer, footer_f, WHITE)
+    footer_f = fit_font(draw, footer, 780, 43, 34, stroke=1)
+    center_text(draw, (155, 1238, 925, 1324), footer, footer_f, WHITE, 1, BLACK)
 
     safe_market = "".join(c if c.isalnum() else "_" for c in data["pasaran"]).strip("_")
     out = OUTPUT_DIR / f"prediksi_{data['result_dt'].date().isoformat()}_{safe_market}_{POSTER_VERSION}.png"
