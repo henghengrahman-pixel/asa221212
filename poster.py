@@ -25,7 +25,7 @@ WHITE = (248, 248, 248)
 GOLD = (225, 181, 70)
 GOLD_SOFT = (193, 147, 48)
 BLACK = (8, 8, 8)
-POSTER_VERSION = "V4-LARGE-20260818"
+POSTER_VERSION = "V5-FONT-FIX-20260818"
 
 
 def seeded_rng(pasaran, result_dt):
@@ -102,18 +102,45 @@ def generate_prediction_data(pasaran, result_dt):
     return data
 
 
+_FONT_CACHE = {}
+
 def font(size, bold=True):
+    """Load font dengan ukuran yang BENAR juga di Railway image minimal.
+
+    Sebelumnya fallback memakai ImageFont.load_default() tanpa size. Jika image
+    Railway tidak punya DejaVu, Pillow mengembalikan bitmap font kecil sehingga
+    seluruh tulisan poster terlihat mini. Pillow 11 mendukung load_default(size=),
+    jadi fallback sekarang tetap scalable sesuai ukuran yang diminta.
+    """
+    size = max(8, int(size))
+    key = (size, bool(bold))
+    if key in _FONT_CACHE:
+        return _FONT_CACHE[key]
+
     candidates = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSansCondensed-Bold.ttf" if bold else "/usr/share/fonts/dejavu/DejaVuSansCondensed.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "DejaVuSansCondensed-Bold.ttf" if bold else "DejaVuSansCondensed.ttf",
         "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",
     ]
     for path in candidates:
         try:
-            return ImageFont.truetype(path, size)
+            fnt = ImageFont.truetype(path, size)
+            _FONT_CACHE[key] = fnt
+            return fnt
         except Exception:
             continue
-    return ImageFont.load_default()
+
+    # CRITICAL FIX: jangan pakai load_default() tanpa size.
+    try:
+        fnt = ImageFont.load_default(size=size)
+    except TypeError:
+        # Sangat jarang pada Pillow lama; requirements mengunci Pillow 11.1.0.
+        fnt = ImageFont.load_default()
+    _FONT_CACHE[key] = fnt
+    return fnt
 
 
 def fit_font(draw, text, max_width, start_size, min_size=22, bold=True):
